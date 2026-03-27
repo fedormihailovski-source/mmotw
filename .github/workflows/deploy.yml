@@ -16,13 +16,22 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
-          tools: phpcs
 
-      - name: Check PHP syntax
+      - name: Check PHP syntax (theme)
         run: |
-          find wordpress/wp-content/themes/MMOTW_Astra -name '*.php' -exec php -l {} \; 2>&1 | grep -v 'No syntax errors'
-          # Fail on errors only
-          find wordpress/wp-content/themes/MMOTW_Astra -name '*.php' -exec php -l {} \; 2>&1 | grep -c 'Parse error' && exit 1 || true
+          errors=0
+          while IFS= read -r file; do
+            if ! php -l "$file" 2>&1 | grep -q 'No syntax errors'; then
+              echo "Syntax error in: $file"
+              php -l "$file"
+              errors=$((errors + 1))
+            fi
+          done < <(find wordpress/wp-content/themes/MMOTW_Astra -name '*.php' 2>/dev/null)
+          if [ $errors -gt 0 ]; then
+            echo "Found $errors PHP syntax errors"
+            exit 1
+          fi
+          echo "All PHP files passed syntax check"
 
       - name: Validate Docker Compose
         run: docker compose config --quiet
@@ -51,7 +60,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${USER}@${HOST} << 'DEPLOY'
             set -e
-            cd ${DEPLOY_PATH:-/var/www/mmotw}
+            cd /var/www/mmotw
 
             echo "=== Pulling latest changes ==="
             git fetch origin main
@@ -69,12 +78,8 @@ jobs:
             if [ "$HTTP_CODE" = "200" ]; then
               echo "Deploy successful! HTTP $HTTP_CODE"
             else
-              echo "WARNING: HTTP $HTTP_CODE — check logs"
+              echo "WARNING: HTTP $HTTP_CODE"
               sudo docker compose logs wordpress --tail 20
               exit 1
             fi
           DEPLOY
-
-      - name: Notify on failure
-        if: failure()
-        run: echo '::error::Deploy failed! Check the logs above.'
