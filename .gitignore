@@ -1,0 +1,45 @@
+# WordPress core (будем хранить только тему и плагин)
+wordpress/wp-admin/
+wordpress/wp-includes/
+wordpress/wp-*.php
+wordpress/index.php
+wordpress/license.txt
+wordpress/readme.html
+wordpress/xmlrpc.php
+
+# Uploads (медиа)
+wordpress/wp-content/uploads/
+
+# Cache
+wordpress/wp-content/cache/
+wordpress/wp-content/upgrade/
+
+# Sensitive
+wordpress/wp-config.php
+.env
+
+# Database
+db-data/
+backups/*.sql
+backups/*.sql.gz
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Dependencies
+node_modules/
+vendor/
+
+# Temp
+*.log
+*.tmp
+.quarantine/
+.tmb/
+.well-known/
+sound/
+wordpress_____/
