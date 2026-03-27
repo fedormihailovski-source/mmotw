@@ -1,0 +1,80 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: phpcs
+
+      - name: Check PHP syntax
+        run: |
+          find wordpress/wp-content/themes/MMOTW_Astra -name '*.php' -exec php -l {} \; 2>&1 | grep -v 'No syntax errors'
+          # Fail on errors only
+          find wordpress/wp-content/themes/MMOTW_Astra -name '*.php' -exec php -l {} \; 2>&1 | grep -c 'Parse error' && exit 1 || true
+
+      - name: Validate Docker Compose
+        run: docker compose config --quiet
+
+  deploy:
+    name: Deploy
+    needs: lint
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy to VPS
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USER: ${{ secrets.VPS_USER }}
+          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${USER}@${HOST} << 'DEPLOY'
+            set -e
+            cd ${DEPLOY_PATH:-/var/www/mmotw}
+
+            echo "=== Pulling latest changes ==="
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "=== Fixing permissions ==="
+            sudo chown -R www-data:www-data wordpress/wp-content
+
+            echo "=== Restarting containers ==="
+            sudo docker compose restart wordpress nginx
+
+            echo "=== Health check ==="
+            sleep 5
+            HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8600)
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Deploy successful! HTTP $HTTP_CODE"
+            else
+              echo "WARNING: HTTP $HTTP_CODE — check logs"
+              sudo docker compose logs wordpress --tail 20
+              exit 1
+            fi
+          DEPLOY
+
+      - name: Notify on failure
+        if: failure()
+        run: echo '::error::Deploy failed! Check the logs above.'
